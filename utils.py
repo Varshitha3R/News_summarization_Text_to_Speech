@@ -19,26 +19,20 @@ TOPIC_KEYWORDS = {
     "Protests": ["protest", "strike", "boycott", "rally", "activists"]
 }
 
-def determine_topics_from_title(title):
-    try:
-        summarized_title = summarizer(title, max_length=15, min_length=5, do_sample=False)[0]['summary_text']
-        summarized_title_lower = summarized_title.lower()
-
-        detected_topics = []
-        for topic, keywords in TOPIC_KEYWORDS.items():
-            if any(keyword.lower() in summarized_title_lower for keyword in keywords):
-                detected_topics.append(topic)
-
-        return detected_topics if detected_topics else ["General"]
-    
-    except Exception as e:
-        print(f"Error in topic detection: {e}")
-        return ["General"]
+def determine_topics_from_summary(summary):
+    """Determine topics based on summarized content."""
+    summary_lower = summary.lower()
+    detected_topics = [
+        topic for topic, keywords in TOPIC_KEYWORDS.items() if any(keyword.lower() in summary_lower for keyword in keywords)
+    ]
+    return detected_topics if detected_topics else ["General"]
 
 def clean_text(text):
+    """Clean and format text."""
     return text.replace("\n", " ").replace("\r", " ").strip()
 
 def scrape_news(company_name):
+    """Scrape top news articles related to a company from Bing News."""
     url = f"https://www.bing.com/news/search?q={company_name}"
     headers = {"User-Agent": "Mozilla/5.0"}
 
@@ -59,20 +53,20 @@ def scrape_news(company_name):
 
             try:
                 summary = summarizer(title, max_length=50, min_length=10, do_sample=False)[0]['summary_text']
+                summarized_title = summarizer(summary, max_length=15, min_length=5, do_sample=False)[0]['summary_text']
                 
-                # Get sentiment analysis with confidence
+                # Sentiment Analysis with confidence check
                 sentiment_result = sentiment_analyzer(summary)[0]
                 sentiment_label = sentiment_result['label'].lower()
                 confidence = sentiment_result['score']
 
-                # If confidence is low, classify as neutral
                 if confidence < 0.7:
                     sentiment_label = "neutral"
 
-                topics = determine_topics_from_title(title)
+                topics = determine_topics_from_summary(summary)
 
                 scraped_articles.append({
-                    "Title": title,
+                    "Title": summarized_title,  # Shortened title
                     "Summary": summary,
                     "Sentiment": sentiment_label,
                     "Topics": topics
@@ -86,19 +80,36 @@ def scrape_news(company_name):
         print(f"Error during scraping: {e}")
         return []
 
+def compare_articles(articles):
+    """Perform comparative analysis of articles."""
+    comparisons = []
+    
+    for i in range(len(articles) - 1):
+        article1 = articles[i]
+        article2 = articles[i + 1]
+
+        comparison_text = f"Article {i+1} discusses {article1['Title']}, while Article {i+2} focuses on {article2['Title']}."
+        impact_text = f"The first article highlights {article1['Topics'][0]}, whereas the second emphasizes {article2['Topics'][0]}."
+
+        comparisons.append({
+            "Comparison": comparison_text,
+            "Impact": impact_text
+        })
+
+    return comparisons
+
 def scrape_and_analyze(company_name):
+    """Scrape, summarize, and analyze sentiment and topic trends in news articles."""
     articles = scrape_news(company_name)
 
     if not articles:
         return {"error": f"No articles found for the company '{company_name}'"}
 
     sentiment_distribution = {"positive": 0, "negative": 0, "neutral": 0}
-    
     topic_occurrences = {}
 
     for article in articles:
-        sentiment = article["Sentiment"]
-        sentiment_distribution[sentiment] += 1
+        sentiment_distribution[article["Sentiment"]] += 1
         
         for topic in article["Topics"]:
             topic_occurrences[topic] = topic_occurrences.get(topic, 0) + 1
@@ -112,13 +123,15 @@ def scrape_and_analyze(company_name):
         "Unique Topics": unique_topics
     }
 
-    # Determine final sentiment based on majority sentiment
+    # Determine final sentiment
     if sentiment_distribution["positive"] > sentiment_distribution["negative"]:
         final_sentiment = "सकारात्मक"
     elif sentiment_distribution["negative"] > sentiment_distribution["positive"]:
         final_sentiment = "नकारात्मक"
     else:
         final_sentiment = "तटस्थ"
+
+    comparative_analysis = compare_articles(articles)
 
     result = {
         "Company": company_name,
@@ -127,6 +140,7 @@ def scrape_and_analyze(company_name):
             "Sentiment Distribution": sentiment_distribution,
             "Topic Overlap": topic_overlap
         },
+        "Coverage Differences": comparative_analysis,
         "Final Sentiment Analysis": f"{company_name} की ताज़ा खबरें ज्यादातर {final_sentiment} हैं।"
     }
 
@@ -141,6 +155,7 @@ def scrape_and_analyze(company_name):
     return result
 
 def generate_hindi_tts(text):
+    """Generate Hindi TTS audio from given text."""
     if not text:
         return None
 
@@ -148,7 +163,6 @@ def generate_hindi_tts(text):
     tts = gTTS(text=text, lang="hi")
     tts.save(unique_filename)
 
-    # Ensure the file exists before returning
     if os.path.exists(unique_filename):
         return unique_filename
     else:
@@ -156,6 +170,7 @@ def generate_hindi_tts(text):
         return None
 
 def encode_audio_to_base64(audio_path):
+    """Convert audio file to base64 string."""
     if not audio_path or not os.path.exists(audio_path):
         print("Error: Audio file does not exist or path is invalid.")
         return None
