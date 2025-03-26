@@ -59,13 +59,22 @@ def scrape_news(company_name):
 
             try:
                 summary = summarizer(title, max_length=50, min_length=10, do_sample=False)[0]['summary_text']
-                sentiment = sentiment_analyzer(summary)[0]['label'].upper()
+                
+                # Get sentiment analysis with confidence
+                sentiment_result = sentiment_analyzer(summary)[0]
+                sentiment_label = sentiment_result['label'].lower()
+                confidence = sentiment_result['score']
+
+                # If confidence is low, classify as neutral
+                if confidence < 0.7:
+                    sentiment_label = "neutral"
+
                 topics = determine_topics_from_title(title)
 
                 scraped_articles.append({
                     "Title": title,
                     "Summary": summary,
-                    "Sentiment": sentiment,
+                    "Sentiment": sentiment_label,
                     "Topics": topics
                 })
             except Exception as e:
@@ -83,18 +92,13 @@ def scrape_and_analyze(company_name):
     if not articles:
         return {"error": f"No articles found for the company '{company_name}'"}
 
-    sentiment_distribution = {"Positive": 0, "Negative": 0, "Neutral": 0}
+    sentiment_distribution = {"positive": 0, "negative": 0, "neutral": 0}
     
     topic_occurrences = {}
 
     for article in articles:
         sentiment = article["Sentiment"]
-        if sentiment == "POSITIVE":
-            sentiment_distribution["Positive"] += 1
-        elif sentiment == "NEGATIVE":
-            sentiment_distribution["Negative"] += 1
-        else:
-            sentiment_distribution["Neutral"] += 1
+        sentiment_distribution[sentiment] += 1
         
         for topic in article["Topics"]:
             topic_occurrences[topic] = topic_occurrences.get(topic, 0) + 1
@@ -108,11 +112,17 @@ def scrape_and_analyze(company_name):
         "Unique Topics": unique_topics
     }
 
-    final_sentiment = "सकारात्मक" if sentiment_distribution["Positive"] > sentiment_distribution["Negative"] else "नकारात्मक"
+    # Determine final sentiment based on majority sentiment
+    if sentiment_distribution["positive"] > sentiment_distribution["negative"]:
+        final_sentiment = "सकारात्मक"
+    elif sentiment_distribution["negative"] > sentiment_distribution["positive"]:
+        final_sentiment = "नकारात्मक"
+    else:
+        final_sentiment = "तटस्थ"
 
     result = {
-        "Company": company_name,  # Ensure company name is included
-        "Articles": articles,  # Ensure articles are structured correctly
+        "Company": company_name,
+        "Articles": articles,
         "Comparative Sentiment Score": {
             "Sentiment Distribution": sentiment_distribution,
             "Topic Overlap": topic_overlap
@@ -121,7 +131,12 @@ def scrape_and_analyze(company_name):
     }
 
     hindi_audio_path = generate_hindi_tts(result["Final Sentiment Analysis"])
-    result["Audio"] = encode_audio_to_base64(hindi_audio_path)
+
+    if hindi_audio_path and os.path.exists(hindi_audio_path):
+        result["Audio"] = encode_audio_to_base64(hindi_audio_path)
+    else:
+        print("Error: Hindi TTS file was not generated.")
+        result["Audio"] = None  # Ensure response does not break if audio is missing
 
     return result
 
@@ -132,12 +147,23 @@ def generate_hindi_tts(text):
     unique_filename = f"{uuid.uuid4().hex[:10]}_output.mp3"
     tts = gTTS(text=text, lang="hi")
     tts.save(unique_filename)
-    return unique_filename
 
-def encode_audio_to_base64(audio_path):
-    if not os.path.exists(audio_path):
+    # Ensure the file exists before returning
+    if os.path.exists(unique_filename):
+        return unique_filename
+    else:
+        print("Error: TTS file was not created.")
         return None
 
-    with open(audio_path, "rb") as audio_file:
-        encoded_audio = base64.b64encode(audio_file.read()).decode("utf-8")
-    return f"data:audio/mp3;base64,{encoded_audio}"
+def encode_audio_to_base64(audio_path):
+    if not audio_path or not os.path.exists(audio_path):
+        print("Error: Audio file does not exist or path is invalid.")
+        return None
+
+    try:
+        with open(audio_path, "rb") as audio_file:
+            encoded_audio = base64.b64encode(audio_file.read()).decode("utf-8")
+        return f"data:audio/mp3;base64,{encoded_audio}"
+    except Exception as e:
+        print(f"Error encoding audio: {e}")
+        return None
